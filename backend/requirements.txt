@@ -1,0 +1,22 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
+pydantic-settings
+python-dotenv
+
+# Document Processing
+PyPDF2
+python-docx
+markdown
+
+# Vector Database & Embeddings
+google-generativeai
+
+# Utilities
+httpx
+aiofiles
+python-magic
+
+# Development/Debugging
+debugpy
