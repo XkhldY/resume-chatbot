@@ -14,7 +14,7 @@ services:
       - ./backend:/app
     environment:
       - PYTHONPATH=/app
-      - GEMINI_API_KEY=${AIzaSyBoCJZ6ekSD9J1aofB9ZjxxEJWgAe-QdVA}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
     
   frontend:
     build:
@@ -30,3 +30,5 @@ services:
     command: npm run dev
     depends_on:
       - backend
+        master
+
