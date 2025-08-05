@@ -79,6 +79,7 @@ backend/data/chroma_db/
 *.sqlite
 *.db
 
+backend/documents
 # Logs
 logs/
 *.log

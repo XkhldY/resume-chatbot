@@ -24,11 +24,11 @@ class TestRealDocumentProcessing:
         """Create a DocumentProcessor using the actual documents folder."""
         processor = DocumentProcessor()
         # Use the Docker container documents folder path
-        processor.documents_folder = "/app/documents"
+        processor.documents_folder = "./documents"
         return processor
     
     @pytest.mark.asyncio
-    async def test_scan_real_documents_folder(self, real_processor):
+    async def test_scan_real_documents_folder(self, real_processor: DocumentProcessor):
         """Test scanning the actual documents folder."""
         documents = await real_processor.scan_documents_folder()
         
@@ -36,7 +36,7 @@ class TestRealDocumentProcessing:
         
         # Check that we found the expected files
         filenames = [doc.filename for doc in documents]
-        assert "test-document.txt" in filenames
+        assert "test_document.txt" in filenames
         
         # Check that PDF files are detected (uploaded files with timestamp prefixes)
         pdf_files = [doc for doc in documents if doc.filename.endswith('.pdf')]
@@ -50,7 +50,7 @@ class TestRealDocumentProcessing:
             assert document.status == "ready"
     
     @pytest.mark.asyncio
-    async def test_extract_from_real_text_document(self, real_processor):
+    async def test_extract_from_real_text_document(self, real_processor: DocumentProcessor):
         """Test extracting text from the real text document."""
         file_path = "/app/documents/test-document.txt"
         
@@ -75,7 +75,7 @@ class TestRealDocumentProcessing:
         print(f"Extracted {metadata.word_count} words, {metadata.character_count} characters from text file")
     
     @pytest.mark.asyncio
-    async def test_extract_from_real_pdf_documents(self, real_processor):
+    async def test_extract_from_real_pdf_documents(self, real_processor: DocumentProcessor):
         """Test extracting text from real PDF documents."""
         documents = await real_processor.scan_documents_folder()
         pdf_documents = [doc for doc in documents if doc.filename.lower().endswith('.pdf')]
@@ -139,7 +139,7 @@ class TestRealDocumentProcessing:
         assert successful_extractions > 0, "Should be able to extract text from at least one PDF"
     
     @pytest.mark.asyncio
-    async def test_document_integrity_validation(self, real_processor):
+    async def test_document_integrity_validation(self, real_processor: DocumentProcessor):
         """Test document integrity validation on real files."""
         documents = await real_processor.scan_documents_folder()
         
@@ -179,7 +179,7 @@ class TestRealDocumentProcessing:
         assert healthy_count > 0, "Should have at least one healthy document"
     
     @pytest.mark.asyncio
-    async def test_comprehensive_processing_statistics(self, real_processor):
+    async def test_comprehensive_processing_statistics(self, real_processor: DocumentProcessor):
         """Test comprehensive processing statistics on real documents."""
         stats = await real_processor.get_processing_statistics()
         
@@ -262,7 +262,7 @@ class TestRealDocumentProcessing:
             assert avg_time_per_doc < 30, "Should process documents in reasonable time"
     
     @pytest.mark.asyncio
-    async def test_metadata_extraction_real_files(self, real_processor):
+    async def test_metadata_extraction_real_files(self, real_processor: DocumentProcessor):
         """Test metadata extraction on real files."""
         documents = await real_processor.scan_documents_folder()
         
@@ -314,7 +314,7 @@ class TestPerformanceBenchmarks:
         return processor
     
     @pytest.mark.asyncio
-    async def test_extraction_performance_benchmark(self, real_processor):
+    async def test_extraction_performance_benchmark(self, real_processor: DocumentProcessor):
         """Benchmark extraction performance across different file types."""
         documents = await real_processor.scan_documents_folder()
         

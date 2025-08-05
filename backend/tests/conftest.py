@@ -26,7 +26,7 @@ def mock_settings():
     from unittest.mock import patch, MagicMock
     
     mock_settings = MagicMock()
-    mock_settings.documents_folder = "/app/documents"  # Use Docker container path
+    mock_settings.documents_folder = "./documents"  # Use Docker container path
     mock_settings.max_file_size_bytes = 50 * 1024 * 1024  # 50MB
     mock_settings.max_file_size_mb = 50
     mock_settings.allowed_extensions = ['.pdf', '.docx', '.txt', '.md']
