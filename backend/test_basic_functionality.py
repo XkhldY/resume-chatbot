@@ -2,7 +2,7 @@
 """
 Basic functionality test for the enhanced document processor.
 """
-
+import pytest
 import asyncio
 import sys
 import os
@@ -18,6 +18,7 @@ except ImportError as e:
     print(f"✗ Import error: {e}")
     sys.exit(1)
 
+@pytest.mark.asyncio
 async def test_basic_functionality():
     """Test basic functionality of the enhanced processor."""
     print("\nTesting Enhanced Document Processor")
