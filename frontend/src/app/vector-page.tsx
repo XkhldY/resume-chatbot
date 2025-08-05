@@ -17,7 +17,8 @@ import {
   ProcessingTestingInterface,
   ProcessingStatisticsDisplay,
   ErrorBoundary,
-  LoadingState
+  LoadingState,
+  VectorDashboard
 } from '@/components/ui'
 import { 
   DocumentArrowUpIcon, 
@@ -25,16 +26,18 @@ import {
   CheckCircleIcon,
   Cog6ToothIcon,
   EyeIcon,
-  ChartBarIcon
+  ChartBarIcon,
+  CircleStackIcon,
+  MagnifyingGlassIcon
 } from '@heroicons/react/24/outline'
 import { UploadFile } from '@/types/upload'
 import { useDocumentProcessing, useDocumentPreview, useBulkOperations } from '@/hooks/useDocumentProcessing'
 
-type ViewMode = 'upload' | 'documents' | 'testing' | 'statistics'
+type ViewMode = 'upload' | 'documents' | 'vector' | 'testing' | 'statistics'
 
-export default function Home() {
+export default function VectorPage() {
   // State management
-  const [viewMode, setViewMode] = useState<ViewMode>('upload')
+  const [viewMode, setViewMode] = useState<ViewMode>('vector')
   const [uploadedFiles, setUploadedFiles] = useState<UploadFile[]>([])
 
   // Hooks for document processing
@@ -138,14 +141,22 @@ export default function Home() {
         <div className="container mx-auto px-4 py-8 max-w-7xl">
           {/* Header */}
           <div className="text-center mb-8">
-            <h1 className="mb-4">Enhanced Document Chatbot</h1>
-            <p className="text-neutral-600 max-w-2xl mx-auto">
-              Upload, process, and interact with your documents using advanced AI technology with comprehensive processing capabilities.
+            <h1 className="mb-4">Document Chatbot with Vector Database</h1>
+            <p className="text-neutral-600 max-w-3xl mx-auto">
+              Advanced document processing with ChromaDB vector database integration. Upload, process, and interact with your documents using state-of-the-art embedding technology for semantic search and RAG capabilities.
             </p>
           </div>
 
-          {/* Navigation */}
+          {/* Enhanced Navigation */}
           <div className="flex flex-wrap gap-2 mb-6 justify-center">
+            <Button
+              variant={viewMode === 'vector' ? 'default' : 'outline'}
+              onClick={() => setViewMode('vector')}
+              className="flex items-center gap-2"
+            >
+              <CircleStackIcon className="w-4 h-4" />
+              Vector Database
+            </Button>
             <Button
               variant={viewMode === 'upload' ? 'default' : 'outline'}
               onClick={() => setViewMode('upload')}
@@ -168,7 +179,7 @@ export default function Home() {
               className="flex items-center gap-2"
             >
               <Cog6ToothIcon className="w-4 h-4" />
-              Testing Interface
+              System Testing
             </Button>
             <Button
               variant={viewMode === 'statistics' ? 'default' : 'outline'}
@@ -189,6 +200,14 @@ export default function Home() {
           )}
 
           {/* Content based on view mode */}
+          {viewMode === 'vector' && (
+            <VectorDashboard
+              initialTab="overview"
+              showManagementFeatures={true}
+              allowDangerousOperations={false}
+            />
+          )}
+
           {viewMode === 'upload' && (
             <div className="space-y-6">
               {/* Upload Section */}
@@ -199,7 +218,7 @@ export default function Home() {
                     Upload Documents
                   </CardTitle>
                   <CardDescription>
-                    Upload PDFs, Word docs, text files, and markdown files for AI-powered processing and analysis.
+                    Upload PDFs, Word docs, text files, and markdown files for AI-powered processing and vector embedding.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -215,9 +234,9 @@ export default function Home() {
               {(hasUploads || documents.length > 0) && (
                 <Card>
                   <CardHeader>
-                    <CardTitle>Process Documents</CardTitle>
+                    <CardTitle>Process Documents for Vector Database</CardTitle>
                     <CardDescription>
-                      Process documents to enable AI chat and analysis features.
+                      Process documents to extract text, generate embeddings, and enable semantic search capabilities.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -231,12 +250,12 @@ export default function Home() {
                         {isProcessingAll ? (
                           <>
                             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                            Processing...
+                            Processing & Embedding...
                           </>
                         ) : (
                           <>
-                            <ChatBubbleLeftRightIcon className="w-4 h-4 mr-2" />
-                            Process All Documents
+                            <CircleStackIcon className="w-4 h-4 mr-2" />
+                            Process All & Generate Embeddings
                           </>
                         )}
                       </Button>
@@ -260,9 +279,20 @@ export default function Home() {
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-semibold">Document Library</h2>
-                <Button onClick={loadDocuments} variant="outline" size="sm">
-                  Refresh
-                </Button>
+                <div className="flex gap-2">
+                  <Button 
+                    onClick={() => setViewMode('vector')} 
+                    variant="outline" 
+                    size="sm"
+                    className="flex items-center gap-2"
+                  >
+                    <MagnifyingGlassIcon className="w-4 h-4" />
+                    Vector Search
+                  </Button>
+                  <Button onClick={loadDocuments} variant="outline" size="sm">
+                    Refresh
+                  </Button>
+                </div>
               </div>
 
               <LoadingState
@@ -318,38 +348,71 @@ export default function Home() {
             />
           )}
 
-          {/* Chat Section - Always visible when documents are ready */}
+          {/* Enhanced Chat Section - Always visible when documents are ready */}
           {readyDocuments.length > 0 && (
             <Card className="mt-8">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <ChatBubbleLeftRightIcon className="w-6 h-6 text-primary" />
-                  Chat with Your Documents
+                  AI Chat with Vector Search
                 </CardTitle>
                 <CardDescription>
-                  Ask questions about your {readyDocuments.length} processed document{readyDocuments.length !== 1 ? 's' : ''}.
+                  Ask questions about your {readyDocuments.length} processed document{readyDocuments.length !== 1 ? 's' : ''} using semantic search powered by vector embeddings.
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
+                  <div className="flex items-center gap-2 p-3 bg-primary-50 rounded-lg border border-primary-200">
+                    <CircleStackIcon className="w-5 h-5 text-primary-600" />
+                    <span className="text-sm text-primary-800">
+                      Enhanced with vector database for intelligent semantic search and context retrieval
+                    </span>
+                  </div>
                   <Input 
-                    placeholder="Ask a question about your documents..."
+                    placeholder="Ask a question about your documents using natural language..."
                     className="w-full"
                   />
-                  <Button className="w-full sm:w-auto">
-                    Send Message
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button className="flex-1 sm:flex-none">
+                      <MagnifyingGlassIcon className="w-4 h-4 mr-2" />
+                      Send Message
+                    </Button>
+                    <Button 
+                      variant="outline"
+                      onClick={() => setViewMode('vector')}
+                      className="flex items-center gap-2"
+                    >
+                      <CircleStackIcon className="w-4 h-4" />
+                      Open Vector Dashboard
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
           )}
 
-          {/* Getting Started Help */}
+          {/* Enhanced Getting Started Help */}
           {documents.length === 0 && !hasUploads && (
             <Alert className="mt-8">
               <AlertDescription>
-                <strong>Getting Started:</strong> Upload documents above to begin processing them for AI-powered chat and analysis. 
-                The system supports PDF, DOCX, TXT, and MD files with comprehensive text extraction and metadata analysis.
+                <strong>Getting Started with Vector Database:</strong>
+                <ul className="mt-2 space-y-1 text-sm">
+                  <li>• <strong>Upload:</strong> Add your documents (PDF, DOCX, TXT, MD)</li>
+                  <li>• <strong>Process:</strong> Documents are chunked and embedded into ChromaDB</li>
+                  <li>• <strong>Search:</strong> Use semantic search to find relevant content</li>
+                  <li>• <strong>Chat:</strong> AI-powered conversations with intelligent context retrieval</li>
+                </ul>
+                <div className="mt-3 pt-3 border-t border-neutral-200">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => setViewMode('vector')}
+                    className="flex items-center gap-2"
+                  >
+                    <CircleStackIcon className="w-4 h-4" />
+                    Explore Vector Database Features
+                  </Button>
+                </div>
               </AlertDescription>
             </Alert>
           )}

@@ -3,9 +3,30 @@ from typing import List
 import os
 
 class Settings(BaseSettings):
+    # API Keys and External Services
     gemini_api_key: str = ""
+    
+    # File System Paths
     documents_folder: str = "/app/documents"
     vector_store_path: str = "/app/data/chroma_db"
+    
+    # ChromaDB Configuration
+    chroma_collection_name: str = "document_embeddings"
+    chroma_host: str = "localhost"
+    chroma_port: int = 8001
+    chroma_ssl: bool = False
+    chroma_max_batch_size: int = 100
+    chroma_distance_function: str = "cosine"  # cosine, l2, ip
+    
+    # Embedding Configuration
+    embedding_model: str = "text-embedding-004"
+    embedding_dimension: int = 768
+    chunk_size: int = 1000
+    chunk_overlap: int = 200
+    
+    # Vector Search Configuration
+    max_search_results: int = 10
+    similarity_threshold: float = 0.7
     
     # File upload settings
     max_file_size_mb: int = 10

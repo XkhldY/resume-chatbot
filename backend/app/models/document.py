@@ -22,6 +22,7 @@ class UploadedFileInfo(BaseModel):
     content_type: str
     upload_timestamp: datetime
     document_id: str
+    integrity_warnings: Optional[List[str]] = []
 
 class DocumentUploadResponse(BaseModel):
     """Response for document upload endpoint"""
