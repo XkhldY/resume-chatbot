@@ -7,8 +7,14 @@ python-dotenv
 
 # Document Processing
 PyPDF2
+PyMuPDF
 python-docx
 markdown
+chardet
+langdetect
+pandas
+beautifulsoup4
+nltk
 
 # Vector Database & Embeddings
 google-generativeai
@@ -20,3 +26,8 @@ python-magic
 
 # Development/Debugging
 debugpy
+
+# Testing
+pytest
+pytest-asyncio
+pytest-mock

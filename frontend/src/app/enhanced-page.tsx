@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useCallback } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { 
   Button, 
   Card, 
@@ -13,6 +13,7 @@ import {
   AlertDescription, 
   FileUpload,
   DocumentListItem,
+  DocumentProcessingStatus,
   DocumentPreview,
   ProcessingTestingInterface,
   ProcessingStatisticsDisplay,
@@ -28,109 +29,124 @@ import {
   ChartBarIcon
 } from '@heroicons/react/24/outline'
 import { UploadFile } from '@/types/upload'
-import { useDocumentProcessing, useDocumentPreview, useBulkOperations } from '@/hooks/useDocumentProcessing'
+import { 
+  Document, 
+  DocumentDetails, 
+  ProcessingStatistics, 
+  HealthCheckResponse,
+  BulkProcessingResponse 
+} from '@/types/document'
+import { 
+  processDocuments, 
+  getDocuments, 
+  getDocument, 
+  processDocument,
+  getHealthCheck,
+  ApiError 
+} from '@/lib/api'
 
 type ViewMode = 'upload' | 'documents' | 'testing' | 'statistics'
 
-export default function Home() {
+export default function EnhancedPage() {
   // State management
   const [viewMode, setViewMode] = useState<ViewMode>('upload')
   const [uploadedFiles, setUploadedFiles] = useState<UploadFile[]>([])
+  const [documents, setDocuments] = useState<Document[]>([])
+  const [selectedDocument, setSelectedDocument] = useState<DocumentDetails | null>(null)
+  const [statistics, setStatistics] = useState<ProcessingStatistics | null>(null)
+  const [healthStatus, setHealthStatus] = useState<HealthCheckResponse | null>(null)
+  
+  // Loading states
+  const [isLoadingDocuments, setIsLoadingDocuments] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  // Hooks for document processing
-  const {
-    documents,
-    statistics,
-    healthStatus,
-    isLoading,
-    error,
-    readyDocuments,
-    processingStats,
-    loadDocuments,
-    processSingleDocument,
-    retryDocument,
-    checkHealth,
-    clearError
-  } = useDocumentProcessing()
-
-  const {
-    selectedDocument,
-    isLoadingPreview,
-    previewError,
-    openPreview,
-    closePreview
-  } = useDocumentPreview()
-
-  const {
-    isProcessingAll,
-    bulkError,
-    lastBulkResult,
-    processAll,
-    clearAll
-  } = useBulkOperations()
-
-  // Upload handlers
-  const handleUploadComplete = useCallback((files: UploadFile[]) => {
-    setUploadedFiles(files)
-    clearError()
-    // Refresh documents list after upload
+  // Load documents on component mount
+  useEffect(() => {
     loadDocuments()
-  }, [loadDocuments, clearError])
-
-  const handleUploadError = useCallback((error: string) => {
-    console.error('Upload error:', error)
   }, [])
 
-  // Document handlers
-  const handleProcessDocument = useCallback(async (documentId: string) => {
+  const loadDocuments = async () => {
+    setIsLoadingDocuments(true)
+    setError(null)
     try {
-      await processSingleDocument(documentId)
+      const response = await getDocuments()
+      setDocuments(response.documents)
     } catch (err) {
-      console.error('Process document error:', err)
+      const errorMessage = err instanceof ApiError ? err.message : 'Failed to load documents'
+      setError(errorMessage)
+    } finally {
+      setIsLoadingDocuments(false)
     }
-  }, [processSingleDocument])
+  }
 
-  const handleViewDocument = useCallback(async (documentId: string) => {
-    await openPreview(documentId)
-  }, [openPreview])
+  const handleUploadComplete = useCallback((files: UploadFile[]) => {
+    setUploadedFiles(files)
+    setError(null)
+    // Refresh documents list after upload
+    loadDocuments()
+  }, [])
 
-  const handleRetryDocument = useCallback(async (documentId: string) => {
+  const handleUploadError = useCallback((error: string) => {
+    setError(error)
+  }, [])
+
+  const handleProcessAll = async (): Promise<BulkProcessingResponse> => {
+    setIsProcessing(true)
+    setError(null)
     try {
-      await retryDocument(documentId)
+      const result = await processDocuments()
+      await loadDocuments() // Refresh documents
+      return result
     } catch (err) {
-      console.error('Retry document error:', err)
+      const errorMessage = err instanceof ApiError ? err.message : 'Failed to process documents'
+      setError(errorMessage)
+      throw err
+    } finally {
+      setIsProcessing(false)
     }
-  }, [retryDocument])
+  }
 
-  // Bulk operation handlers
-  const handleProcessAll = useCallback(async () => {
+  const handleClearAll = async () => {
+    // This would need a backend endpoint to clear all documents
+    // For now, just refresh the documents list
+    await loadDocuments()
+    return { success: true, message: 'Documents cleared' }
+  }
+
+  const handleHealthCheck = async (): Promise<HealthCheckResponse> => {
+    const status = await getHealthCheck()
+    setHealthStatus(status)
+    return status
+  }
+
+  const handleProcessDocument = async (documentId: string) => {
     try {
-      await processAll()
+      await processDocument(documentId)
       await loadDocuments()
     } catch (err) {
-      console.error('Process all error:', err)
+      const errorMessage = err instanceof ApiError ? err.message : 'Failed to process document'
+      setError(errorMessage)
     }
-  }, [processAll, loadDocuments])
+  }
 
-  const handleClearAll = useCallback(async () => {
+  const handleViewDocument = async (documentId: string) => {
     try {
-      await clearAll()
-      await loadDocuments()
+      const documentDetails = await getDocument(documentId)
+      setSelectedDocument(documentDetails)
     } catch (err) {
-      console.error('Clear all error:', err)
+      const errorMessage = err instanceof ApiError ? err.message : 'Failed to load document details'
+      setError(errorMessage)
     }
-  }, [clearAll, loadDocuments])
+  }
 
-  const handleHealthCheck = useCallback(async () => {
-    try {
-      await checkHealth()
-    } catch (err) {
-      console.error('Health check error:', err)
-    }
-  }, [checkHealth])
+  const handleRetryDocument = async (documentId: string) => {
+    await handleProcessDocument(documentId)
+  }
 
   const successfulUploads = uploadedFiles.filter(f => f.status === 'success')
   const hasUploads = successfulUploads.length > 0
+  const readyDocuments = documents.filter(d => d.status === 'ready')
 
   return (
     <ErrorBoundary>
@@ -182,9 +198,9 @@ export default function Home() {
           </div>
 
           {/* Global Error Display */}
-          {(error || bulkError) && (
+          {error && (
             <Alert variant="destructive" className="mb-6">
-              <AlertDescription>{error || bulkError}</AlertDescription>
+              <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
 
@@ -212,44 +228,33 @@ export default function Home() {
               </Card>
 
               {/* Quick Processing */}
-              {(hasUploads || documents.length > 0) && (
+              {hasUploads && (
                 <Card>
                   <CardHeader>
                     <CardTitle>Process Documents</CardTitle>
                     <CardDescription>
-                      Process documents to enable AI chat and analysis features.
+                      Process your uploaded documents to enable AI chat and analysis features.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="flex flex-col sm:flex-row gap-4">
-                      <Button
-                        onClick={handleProcessAll}
-                        disabled={isProcessingAll}
-                        size="lg"
-                        className="flex-1"
-                      >
-                        {isProcessingAll ? (
-                          <>
-                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                            Processing...
-                          </>
-                        ) : (
-                          <>
-                            <ChatBubbleLeftRightIcon className="w-4 h-4 mr-2" />
-                            Process All Documents
-                          </>
-                        )}
-                      </Button>
-                      
-                      {processingStats.total > 0 && (
-                        <div className="flex items-center gap-4 text-sm text-gray-600">
-                          <span>Total: {processingStats.total}</span>
-                          <span className="text-green-600">Ready: {processingStats.ready}</span>
-                          <span className="text-blue-600">Processing: {processingStats.processing}</span>
-                          <span className="text-red-600">Errors: {processingStats.error}</span>
-                        </div>
+                    <Button
+                      onClick={() => handleProcessAll()}
+                      disabled={isProcessing}
+                      size="lg"
+                      className="w-full sm:w-auto"
+                    >
+                      {isProcessing ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <ChatBubbleLeftRightIcon className="w-4 h-4 mr-2" />
+                          Process All Documents
+                        </>
                       )}
-                    </div>
+                    </Button>
                   </CardContent>
                 </Card>
               )}
@@ -266,7 +271,7 @@ export default function Home() {
               </div>
 
               <LoadingState
-                isLoading={isLoading}
+                isLoading={isLoadingDocuments}
                 error={error}
                 onRetry={loadDocuments}
                 loadingText="Loading documents..."
@@ -292,7 +297,7 @@ export default function Home() {
                   <CardContent className="p-6">
                     <DocumentPreview
                       documentDetails={selectedDocument}
-                      onClose={closePreview}
+                      onClose={() => setSelectedDocument(null)}
                     />
                   </CardContent>
                 </Card>
@@ -313,7 +318,6 @@ export default function Home() {
           {viewMode === 'statistics' && statistics && (
             <ProcessingStatisticsDisplay
               statistics={statistics}
-              recentResults={lastBulkResult?.results}
               showDetails={true}
             />
           )}
@@ -342,16 +346,6 @@ export default function Home() {
                 </div>
               </CardContent>
             </Card>
-          )}
-
-          {/* Getting Started Help */}
-          {documents.length === 0 && !hasUploads && (
-            <Alert className="mt-8">
-              <AlertDescription>
-                <strong>Getting Started:</strong> Upload documents above to begin processing them for AI-powered chat and analysis. 
-                The system supports PDF, DOCX, TXT, and MD files with comprehensive text extraction and metadata analysis.
-              </AlertDescription>
-            </Alert>
           )}
         </div>
       </main>

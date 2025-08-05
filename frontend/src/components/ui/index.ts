@@ -5,3 +5,11 @@ export { Alert, AlertDescription } from './alert'
 export { Progress } from './progress'
 export { FileListItem } from './file-list-item'
 export { FileUpload } from './file-upload'
+
+// Enhanced document processing components
+export { DocumentProcessingStatus } from './document-processing-status'
+export { DocumentListItem } from './document-list-item'
+export { DocumentPreview } from './document-preview'
+export { ProcessingTestingInterface } from './processing-testing-interface'
+export { ProcessingStatisticsDisplay } from './processing-statistics'
+export { ErrorDisplay, ErrorBoundary, RetryableAction, LoadingState } from './error-handling'
