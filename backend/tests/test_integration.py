@@ -23,8 +23,8 @@ class TestRealDocumentProcessing:
     def real_processor(self):
         """Create a DocumentProcessor using the actual documents folder."""
         processor = DocumentProcessor()
-        # Use the actual documents folder path
-        processor.documents_folder = "/Users/khaled/Projects/leaning_claude/document-chatbot/documents"
+        # Use the Docker container documents folder path
+        processor.documents_folder = "/app/documents"
         return processor
     
     @pytest.mark.asyncio
@@ -52,7 +52,7 @@ class TestRealDocumentProcessing:
     @pytest.mark.asyncio
     async def test_extract_from_real_text_document(self, real_processor):
         """Test extracting text from the real text document."""
-        file_path = "/Users/khaled/Projects/leaning_claude/document-chatbot/documents/test-document.txt"
+        file_path = "/app/documents/test-document.txt"
         
         if not os.path.exists(file_path):
             pytest.skip("test-document.txt not found")
@@ -310,7 +310,7 @@ class TestPerformanceBenchmarks:
     def real_processor(self):
         """Create a DocumentProcessor using the actual documents folder."""
         processor = DocumentProcessor()
-        processor.documents_folder = "/Users/khaled/Projects/leaning_claude/document-chatbot/documents"
+        processor.documents_folder = "/app/documents"
         return processor
     
     @pytest.mark.asyncio
