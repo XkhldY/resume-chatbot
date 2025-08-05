@@ -13,3 +13,12 @@ export { DocumentPreview } from './document-preview'
 export { ProcessingTestingInterface } from './processing-testing-interface'
 export { ProcessingStatisticsDisplay } from './processing-statistics'
 export { ErrorDisplay, ErrorBoundary, RetryableAction, LoadingState } from './error-handling'
+
+// Vector database components
+export { VectorDatabaseStatus } from './vector-database-status'
+export { DocumentChunksVisualization } from './document-chunks-visualization'
+export { VectorSearchInterface } from './vector-search-interface'
+export { DatabaseManagementUI } from './database-management-ui'
+export { EmbeddingProgressTracking } from './embedding-progress-tracking'
+export { VectorTestingPanel } from './vector-testing-panel'
+export { VectorDashboard } from './vector-dashboard'

@@ -6,6 +6,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     build-essential \
     libmagic1 \
+    sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -15,8 +16,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Create data directory for ChromaDB
-RUN mkdir -p /app/data
+# Create data directory for ChromaDB with proper permissions
+RUN mkdir -p /app/data/chroma_db && \
+    chmod 755 /app/data && \
+    chmod 755 /app/data/chroma_db
 
 EXPOSE 8000
 

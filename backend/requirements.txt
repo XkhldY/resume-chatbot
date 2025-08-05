@@ -18,6 +18,9 @@ nltk
 
 # Vector Database & Embeddings
 google-generativeai
+chromadb
+numpy
+sentence-transformers
 
 # Utilities
 httpx

@@ -6,7 +6,7 @@ import aiofiles
 import asyncio
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Tuple, Optional, Dict, Any, Union
 from pathlib import Path
 from fastapi import UploadFile
@@ -98,11 +98,27 @@ class DocumentProcessor:
     
     def __init__(self):
         self.documents_folder = settings.documents_folder
+        self._vector_store = None
+        self._llm_service = None
         self.max_file_size = getattr(settings, 'max_file_size_bytes', 50 * 1024 * 1024)  # 50MB default
         self.supported_encodings = ['utf-8', 'utf-16', 'latin-1', 'cp1252', 'ascii']
         
         # Initialize NLTK data if needed
         self._ensure_nltk_data()
+    
+    async def _get_vector_store(self):
+        """Get or initialize vector store instance."""
+        if self._vector_store is None:
+            from app.services.vector_store import get_vector_store
+            self._vector_store = await get_vector_store()
+        return self._vector_store
+    
+    def _get_llm_service(self):
+        """Get or initialize LLM service instance."""
+        if self._llm_service is None:
+            from app.services.llm_service import LLMService
+            self._llm_service = LLMService()
+        return self._llm_service
     
     def _ensure_nltk_data(self):
         """Ensure required NLTK data is downloaded."""
@@ -556,8 +572,37 @@ class DocumentProcessor:
                     processing_stats["by_file_type"][file_type]["words"] += metadata.word_count
                     processing_stats["by_file_type"][file_type]["chars"] += metadata.character_count
                     
-                    # Here we would normally chunk the text and create embeddings
-                    # For now, just count as processed
+                    # Add document to vector store
+                    try:
+                        vector_store = await self._get_vector_store()
+                        document_id = str(uuid.uuid4())
+                        
+                        # Add document metadata
+                        doc_metadata = {
+                            "file_path": document.file_path,
+                            "file_size": metadata.file_size,
+                            "word_count": metadata.word_count,
+                            "page_count": metadata.page_count,
+                            "language": metadata.language,
+                            "file_type": metadata.file_type,
+                            "processed_at": datetime.now(timezone.utc).isoformat()
+                        }
+                        
+                        success = await vector_store.add_document(
+                            document_id=document_id,
+                            document_name=document.filename,
+                            text=text,
+                            metadata=doc_metadata
+                        )
+                        
+                        if success:
+                            logger.info(f"Successfully added {document.filename} to vector store")
+                        else:
+                            logger.warning(f"Failed to add {document.filename} to vector store")
+                            
+                    except Exception as e:
+                        logger.error(f"Error adding {document.filename} to vector store: {e}")
+                        # Continue processing other documents even if vector store fails
                 else:
                     failed_documents.append({
                         "filename": document.filename,
