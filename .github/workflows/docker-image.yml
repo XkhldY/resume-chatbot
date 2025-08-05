@@ -1,0 +1,25 @@
+name: Docker Image CI
+
+on:
+    push:
+      branches: [ "master" ]
+    pull_request:
+      branches: [ "master" ]
+
+
+jobs:
+    build_backend:
+      runs-on: ubuntu-latest
+      steps:
+       - uses: actions/checkout@v4
+       - name: Build the Backend Docker image
+         run: docker build ./resume-chatbot/backend --file ./resume-chatbot/backend/Dockerfile --tag document-chatbot-backend:$(date +%s)
+
+
+    build_frontend:
+      runs-on: ubuntu-latest
+      steps:
+       - uses: actions/checkout@v4
+       - name: Build the Frontend Docker image
+         run: docker build ./resume-chatbot/frontend --file ./resume-chatbot/frontend/Dockerfile --tag document-chatbot-frontend:$(date +%s)
+
