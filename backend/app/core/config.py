@@ -21,12 +21,18 @@ class Settings(BaseSettings):
     # Embedding Configuration
     embedding_model: str = "text-embedding-004"
     embedding_dimension: int = 768
+    embedding_batch_size: int = 10
+    max_embedding_chars: int = 8000
     chunk_size: int = 1000
     chunk_overlap: int = 200
     
     # Vector Search Configuration
     max_search_results: int = 10
     similarity_threshold: float = 0.7
+
+    # Conversation settings
+    max_conversation_history: int = 10
+    max_context_chunks_per_query: int = 5
     
     # File upload settings
     max_file_size_mb: int = 10

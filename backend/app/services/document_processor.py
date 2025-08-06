@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import List, Tuple, Optional, Dict, Any, Union
 from pathlib import Path
 from fastapi import UploadFile
-from app.models.document import Document, UploadedFileInfo, UploadValidationError
+from app.models.document import Document, UploadedFileInfo, UploadValidationError, ProcessingStatus, DocumentProcessingResult
 from app.core.config import settings
 from app.services.exceptions import (
     DocumentProcessingError, UnsupportedFileTypeError, FileAccessError,
@@ -31,6 +31,7 @@ import pandas as pd
 
 # Text processing
 import nltk
+from nltk.tokenize import sent_tokenize
 from langdetect import detect, DetectorFactory
 
 # Set seed for consistent language detection
@@ -539,7 +540,7 @@ class DocumentProcessor:
             raise TextExtractionError(file_path, original_error=e)
     
     async def process_all_documents(self) -> dict:
-        """Process all documents in the folder with enhanced reporting."""
+        """Process all documents in the folder with enhanced reporting and intelligent chunking."""
         documents = await self.scan_documents_folder()
         processed_count = 0
         failed_documents = []
@@ -547,6 +548,7 @@ class DocumentProcessor:
             "total_time": 0.0,
             "total_characters": 0,
             "total_words": 0,
+            "total_chunks": 0,
             "by_file_type": {}
         }
         
@@ -566,43 +568,106 @@ class DocumentProcessor:
                     
                     file_type = metadata.file_type or "unknown"
                     if file_type not in processing_stats["by_file_type"]:
-                        processing_stats["by_file_type"][file_type] = {"count": 0, "words": 0, "chars": 0}
+                        processing_stats["by_file_type"][file_type] = {"count": 0, "words": 0, "chars": 0, "chunks": 0}
                     
                     processing_stats["by_file_type"][file_type]["count"] += 1
                     processing_stats["by_file_type"][file_type]["words"] += metadata.word_count
                     processing_stats["by_file_type"][file_type]["chars"] += metadata.character_count
                     
-                    # Add document to vector store
-                    try:
-                        vector_store = await self._get_vector_store()
-                        document_id = str(uuid.uuid4())
-                        
-                        # Add document metadata
-                        doc_metadata = {
-                            "file_path": document.file_path,
-                            "file_size": metadata.file_size,
-                            "word_count": metadata.word_count,
-                            "page_count": metadata.page_count,
-                            "language": metadata.language,
-                            "file_type": metadata.file_type,
-                            "processed_at": datetime.now(timezone.utc).isoformat()
-                        }
-                        
-                        success = await vector_store.add_document(
-                            document_id=document_id,
-                            document_name=document.filename,
-                            text=text,
-                            metadata=doc_metadata
-                        )
-                        
-                        if success:
-                            logger.info(f"Successfully added {document.filename} to vector store")
-                        else:
-                            logger.warning(f"Failed to add {document.filename} to vector store")
+                    # Create intelligent chunks
+                    document_id = str(uuid.uuid4())
+                    chunks = self.chunk_text_intelligently(text, document_id, document.filename, metadata)
+                    
+                    processing_stats["total_chunks"] += len(chunks)
+                    processing_stats["by_file_type"][file_type]["chunks"] += len(chunks)
+                    
+                    # Generate embeddings for chunks and add to vector store
+                    if chunks:
+                        try:
+                            llm_service = self._get_llm_service()
+                            chunk_texts = [chunk["text"] for chunk in chunks]
                             
-                    except Exception as e:
-                        logger.error(f"Error adding {document.filename} to vector store: {e}")
-                        # Continue processing other documents even if vector store fails
+                            logger.info(f"Generating embeddings for {len(chunk_texts)} chunks from {document.filename}")
+                            embeddings = await llm_service.generate_embeddings_batch(chunk_texts)
+                            
+                            # Validate embeddings alignment
+                            if len(embeddings) != len(chunks):
+                                logger.warning(f"Embedding count mismatch for {document.filename}: "
+                                             f"{len(embeddings)} embeddings vs {len(chunks)} chunks")
+                                # Pad or truncate embeddings to match chunks
+                                if len(embeddings) < len(chunks):
+                                    # Pad with zero vectors
+                                    zero_vector = [0.0] * getattr(settings, 'embedding_dimension', 768)
+                                    embeddings.extend([zero_vector] * (len(chunks) - len(embeddings)))
+                                else:
+                                    # Truncate excess embeddings
+                                    embeddings = embeddings[:len(chunks)]
+                            
+                            # Add document to vector store with embeddings
+                            vector_store = await self._get_vector_store()
+                            
+                            success = await vector_store.add_document_chunks(
+                                document_id=document_id,
+                                document_name=document.filename,
+                                chunks=chunks,
+                                embeddings=embeddings
+                            )
+                            
+                            if success:
+                                logger.info(f"Successfully added {document.filename} with {len(chunks)} chunks to vector store")
+                            else:
+                                logger.warning(f"Failed to add {document.filename} to vector store")
+                        
+                        except Exception as e:
+                            logger.error(f"Error generating embeddings or adding {document.filename} to vector store: {e}")
+                            # Continue processing other documents even if embeddings/vector store fails
+                            
+                            # Fallback: add without embeddings using intelligent chunks
+                            try:
+                                vector_store = await self._get_vector_store()
+                                
+                                success = await vector_store.add_document_chunks(
+                                    document_id=document_id,
+                                    document_name=document.filename,
+                                    chunks=chunks,
+                                    embeddings=None  # Let ChromaDB generate embeddings
+                                )
+                                
+                                if success:
+                                    logger.info(f"Added {document.filename} to vector store without pre-generated embeddings")
+                                    
+                            except Exception as fallback_e:
+                                logger.error(f"Fallback chunked storage also failed for {document.filename}: {fallback_e}")
+                                
+                                # Final fallback: use legacy method
+                                try:
+                                    doc_metadata = {
+                                        "file_path": document.file_path,
+                                        "file_size": metadata.file_size,
+                                        "word_count": metadata.word_count,
+                                        "page_count": metadata.page_count,
+                                        "language": metadata.language,
+                                        "file_type": metadata.file_type,
+                                        "processed_at": datetime.now(timezone.utc).isoformat(),
+                                        "embeddings_failed": True,
+                                        "intelligent_chunking_failed": True
+                                    }
+                                    
+                                    success = await vector_store.add_document(
+                                        document_id=document_id,
+                                        document_name=document.filename,
+                                        text=text,
+                                        metadata=doc_metadata
+                                    )
+                                    
+                                    if success:
+                                        logger.info(f"Added {document.filename} using legacy fallback method")
+                                        
+                                except Exception as final_e:
+                                    logger.error(f"All storage methods failed for {document.filename}: {final_e}")
+                    else:
+                        logger.warning(f"No chunks created for {document.filename} - skipping vector store addition")
+                        
                 else:
                     failed_documents.append({
                         "filename": document.filename,
@@ -625,6 +690,380 @@ class DocumentProcessor:
             "failed_documents": failed_documents,
             "processing_stats": processing_stats
         }
+    
+    async def process_all_documents_enhanced(self) -> DocumentProcessingResult:
+        """Enhanced document processing with detailed status tracking and comprehensive error handling."""
+        start_processing_time = time.time()
+        
+        documents = await self.scan_documents_folder()
+        processed_count = 0
+        failed_documents = []
+        total_chunks_created = 0
+        total_embeddings_generated = 0
+        status_details = []
+        
+        processing_stats = {
+            "total_time": 0.0,
+            "total_characters": 0,
+            "total_words": 0,
+            "total_chunks": 0,
+            "by_file_type": {},
+            "embedding_stats": {
+                "total_requested": 0,
+                "total_generated": 0,
+                "failed_generations": 0,
+                "average_embedding_time": 0.0
+            }
+        }
+        
+        for document in documents:
+            document_id = str(uuid.uuid4())
+            doc_start_time = time.time()
+            
+            # Initialize status tracking
+            status = ProcessingStatus(
+                document_id=document_id,
+                filename=document.filename,
+                status="pending",
+                progress=0.0,
+                started_at=datetime.now(timezone.utc)
+            )
+            
+            try:
+                # Phase 1: Text Extraction
+                status.status = "processing"
+                status.progress = 0.1
+                logger.info(f"Starting text extraction for {document.filename}")
+                
+                text, metadata = await self.extract_text_from_file(document.file_path, extract_metadata=True)
+                
+                if not text.strip():
+                    status.status = "failed"
+                    status.error_message = "No text extracted from document"
+                    status.completed_at = datetime.now(timezone.utc)
+                    status.processing_time_seconds = time.time() - doc_start_time
+                    
+                    failed_documents.append({
+                        "filename": document.filename,
+                        "error": "No text extracted",
+                        "warnings": metadata.warnings if metadata else []
+                    })
+                    status_details.append(status)
+                    continue
+                
+                # Update statistics
+                processing_time = time.time() - doc_start_time
+                processing_stats["total_time"] += processing_time
+                processing_stats["total_characters"] += metadata.character_count
+                processing_stats["total_words"] += metadata.word_count
+                
+                file_type = metadata.file_type or "unknown"
+                if file_type not in processing_stats["by_file_type"]:
+                    processing_stats["by_file_type"][file_type] = {
+                        "count": 0, "words": 0, "chars": 0, "chunks": 0
+                    }
+                
+                processing_stats["by_file_type"][file_type]["count"] += 1
+                processing_stats["by_file_type"][file_type]["words"] += metadata.word_count
+                processing_stats["by_file_type"][file_type]["chars"] += metadata.character_count
+                
+                # Phase 2: Intelligent Chunking
+                status.status = "chunking"
+                status.progress = 0.3
+                logger.info(f"Creating intelligent chunks for {document.filename}")
+                
+                chunks = self.chunk_text_intelligently(text, document_id, document.filename, metadata)
+                
+                if not chunks:
+                    status.status = "failed"
+                    status.error_message = "Failed to create chunks from document"
+                    status.completed_at = datetime.now(timezone.utc)
+                    status.processing_time_seconds = time.time() - doc_start_time
+                    
+                    failed_documents.append({
+                        "filename": document.filename,
+                        "error": "Chunking failed",
+                        "warnings": ["No chunks could be created from extracted text"]
+                    })
+                    status_details.append(status)
+                    continue
+                
+                status.chunks_created = len(chunks)
+                total_chunks_created += len(chunks)
+                processing_stats["total_chunks"] += len(chunks)
+                processing_stats["by_file_type"][file_type]["chunks"] += len(chunks)
+                
+                # Phase 3: Embeddings Generation
+                status.status = "embedding"
+                status.progress = 0.5
+                logger.info(f"Generating embeddings for {len(chunks)} chunks from {document.filename}")
+                
+                embedding_start_time = time.time()
+                embeddings = []
+                embedding_success = False
+                
+                try:
+                    llm_service = self._get_llm_service()
+                    chunk_texts = [chunk["text"] for chunk in chunks]
+                    
+                    processing_stats["embedding_stats"]["total_requested"] += len(chunk_texts)
+                    
+                    embeddings = await llm_service.generate_embeddings_batch(chunk_texts)
+                    embedding_time = time.time() - embedding_start_time
+                    
+                    # Validate embeddings
+                    if len(embeddings) == len(chunks):
+                        embedding_success = True
+                        status.embeddings_generated = len(embeddings)
+                        total_embeddings_generated += len(embeddings)
+                        processing_stats["embedding_stats"]["total_generated"] += len(embeddings)
+                        
+                        # Update average embedding time
+                        current_avg = processing_stats["embedding_stats"]["average_embedding_time"]
+                        total_docs_processed = processed_count + 1
+                        processing_stats["embedding_stats"]["average_embedding_time"] = \
+                            (current_avg * processed_count + embedding_time) / total_docs_processed
+                    else:
+                        logger.warning(f"Embedding count mismatch for {document.filename}")
+                        # Align embeddings with chunks
+                        if len(embeddings) < len(chunks):
+                            zero_vector = [0.0] * getattr(settings, 'embedding_dimension', 768)
+                            embeddings.extend([zero_vector] * (len(chunks) - len(embeddings)))
+                        else:
+                            embeddings = embeddings[:len(chunks)]
+                        
+                        embedding_success = True
+                        status.embeddings_generated = len(chunks)  # Report aligned count
+                        total_embeddings_generated += len(chunks)
+                        processing_stats["embedding_stats"]["total_generated"] += len(chunks)
+                
+                except Exception as e:
+                    logger.error(f"Embedding generation failed for {document.filename}: {e}")
+                    processing_stats["embedding_stats"]["failed_generations"] += len(chunks)
+                    embedding_success = False
+                
+                # Phase 4: Vector Store Storage
+                status.status = "storing"
+                status.progress = 0.8
+                
+                storage_success = False
+                
+                try:
+                    vector_store = await self._get_vector_store()
+                    
+                    if embedding_success and embeddings:
+                        # Store with pre-generated embeddings
+                        success = await vector_store.add_document_chunks(
+                            document_id=document_id,
+                            document_name=document.filename,
+                            chunks=chunks,
+                            embeddings=embeddings
+                        )
+                        
+                        if success:
+                            storage_success = True
+                            logger.info(f"Successfully stored {document.filename} with {len(chunks)} chunks and embeddings")
+                        else:
+                            logger.warning(f"Failed to store {document.filename} with embeddings")
+                    
+                    # Fallback: store without pre-generated embeddings
+                    if not storage_success:
+                        success = await vector_store.add_document_chunks(
+                            document_id=document_id,
+                            document_name=document.filename,
+                            chunks=chunks,
+                            embeddings=None
+                        )
+                        
+                        if success:
+                            storage_success = True
+                            logger.info(f"Successfully stored {document.filename} without pre-generated embeddings")
+                
+                except Exception as e:
+                    logger.error(f"Vector store storage failed for {document.filename}: {e}")
+                
+                # Final status update
+                if storage_success:
+                    status.status = "completed"
+                    status.progress = 1.0
+                    processed_count += 1
+                    logger.info(f"Successfully completed processing {document.filename}")
+                else:
+                    status.status = "failed"
+                    status.error_message = "Failed to store in vector database"
+                    failed_documents.append({
+                        "filename": document.filename,
+                        "error": "Storage failed",
+                        "warnings": ["Vector store storage failed after successful processing"]
+                    })
+                
+                status.completed_at = datetime.now(timezone.utc)
+                status.processing_time_seconds = time.time() - doc_start_time
+                
+            except Exception as e:
+                logger.error(f"Error processing {document.filename}: {e}")
+                status.status = "failed"
+                status.error_message = str(e)
+                status.completed_at = datetime.now(timezone.utc)
+                status.processing_time_seconds = time.time() - doc_start_time
+                
+                failed_documents.append({
+                    "filename": document.filename,
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                })
+            
+            status_details.append(status)
+        
+        total_processing_time = time.time() - start_processing_time
+        processing_stats["total_time"] = total_processing_time
+        
+        return DocumentProcessingResult(
+            total_documents=len(documents),
+            processed_count=processed_count,
+            failed_count=len(failed_documents),
+            total_chunks_created=total_chunks_created,
+            total_embeddings_generated=total_embeddings_generated,
+            processing_time_seconds=total_processing_time,
+            failed_documents=failed_documents,
+            processing_stats=processing_stats,
+            status_details=status_details
+        )
+    
+    def chunk_text_intelligently(self, text: str, document_id: str, document_name: str, metadata: Optional[DocumentMetadata] = None) -> List[Dict[str, Any]]:
+        """Intelligently chunk text with sentence boundaries and semantic coherence."""
+        if not text.strip():
+            return []
+        
+        chunks = []
+        chunk_size = settings.chunk_size
+        chunk_overlap = settings.chunk_overlap
+        
+        try:
+            # First, split into sentences using NLTK
+            sentences = sent_tokenize(text)
+            if not sentences:
+                # Fallback to simple splitting if sentence tokenization fails
+                sentences = self._fallback_sentence_split(text)
+        except Exception as e:
+            logger.warning(f"Sentence tokenization failed: {e}, using fallback method")
+            sentences = self._fallback_sentence_split(text)
+        
+        current_chunk = ""
+        current_chunk_sentences = []
+        chunk_index = 0
+        start_char = 0
+        
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+            
+            # Check if adding this sentence would exceed chunk size
+            potential_chunk = current_chunk + (" " if current_chunk else "") + sentence
+            
+            if len(potential_chunk) > chunk_size and current_chunk:
+                # Create chunk from current content
+                chunk_text = current_chunk.strip()
+                if chunk_text:
+                    end_char = start_char + len(chunk_text)
+                    
+                    chunk_metadata = {
+                        "document_id": document_id,
+                        "document_name": document_name,
+                        "chunk_index": chunk_index,
+                        "start_char": start_char,
+                        "end_char": end_char,
+                        "sentence_count": len(current_chunk_sentences),
+                        "chunk_type": "intelligent"
+                    }
+                    
+                    # Add document metadata if available
+                    if metadata:
+                        chunk_metadata.update({
+                            "file_type": metadata.file_type,
+                            "language": metadata.language,
+                            "page_count": metadata.page_count,
+                            "extraction_method": metadata.extraction_method
+                        })
+                    
+                    chunks.append({
+                        "text": chunk_text,
+                        "metadata": chunk_metadata
+                    })
+                    
+                    chunk_index += 1
+                
+                # Start new chunk with overlap if configured
+                if chunk_overlap > 0 and len(current_chunk_sentences) > 1:
+                    # Keep last few sentences for overlap based on character count
+                    overlap_text = ""
+                    overlap_sentences = []
+                    for sent in reversed(current_chunk_sentences):
+                        potential_overlap = sent + (" " + overlap_text if overlap_text else "")
+                        if len(potential_overlap) <= chunk_overlap:
+                            overlap_text = potential_overlap
+                            overlap_sentences.insert(0, sent)
+                        else:
+                            break
+                    
+                    current_chunk = overlap_text
+                    current_chunk_sentences = overlap_sentences
+                    # Adjust start_char for overlap
+                    start_char = end_char - len(overlap_text)
+                else:
+                    current_chunk = ""
+                    current_chunk_sentences = []
+                    start_char = end_char
+            
+            # Add current sentence to chunk
+            if current_chunk:
+                current_chunk += " " + sentence
+            else:
+                current_chunk = sentence
+            current_chunk_sentences.append(sentence)
+        
+        # Add final chunk if there's remaining content
+        if current_chunk.strip():
+            end_char = start_char + len(current_chunk)
+            
+            chunk_metadata = {
+                "document_id": document_id,
+                "document_name": document_name,
+                "chunk_index": chunk_index,
+                "start_char": start_char,
+                "end_char": end_char,
+                "sentence_count": len(current_chunk_sentences),
+                "chunk_type": "intelligent"
+            }
+            
+            if metadata:
+                chunk_metadata.update({
+                    "file_type": metadata.file_type,
+                    "language": metadata.language,
+                    "page_count": metadata.page_count,
+                    "extraction_method": metadata.extraction_method
+                })
+            
+            chunks.append({
+                "text": current_chunk.strip(),
+                "metadata": chunk_metadata
+            })
+        
+        logger.info(f"Created {len(chunks)} intelligent chunks for {document_name}")
+        return chunks
+    
+    def _fallback_sentence_split(self, text: str) -> List[str]:
+        """Fallback sentence splitting using simple regex patterns."""
+        import re
+        
+        # Split on sentence endings, keeping the punctuation
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        
+        # Filter out very short "sentences" (likely fragments)
+        sentences = [s.strip() for s in sentences if len(s.strip()) > 10]
+        
+        return sentences
     
     def _sanitize_filename(self, filename: str) -> str:
         """Sanitize filename to prevent directory traversal and other security issues"""
@@ -723,12 +1162,12 @@ class DocumentProcessor:
             ))
         
         # Validate file type
-        type_valid, type_message, mime_type = self._validate_file_type(file_content, upload_file.filename)
+        type_valid, type_message, detected_mime_type = self._validate_file_type(file_content, upload_file.filename)
         if not type_valid:
             errors.append(UploadValidationError(
                 filename=upload_file.filename,
                 error_type="type",
-                message=type_message
+                message=f"{type_message} (detected: {detected_mime_type})"
             ))
         
         return len(errors) == 0, errors

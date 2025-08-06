@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, status
 from typing import List
-from app.models.document import DocumentListResponse, Document, DocumentUploadResponse
+from app.models.document import DocumentListResponse, Document, DocumentUploadResponse, DocumentProcessingResult
 from app.services.document_processor import DocumentProcessor
 from datetime import datetime
 import os
@@ -20,12 +20,12 @@ async def list_documents():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error listing documents: {str(e)}")
 
-@router.post("/documents/process")
+@router.post("/documents/process", response_model=DocumentProcessingResult)
 async def process_documents():
-    """Process all documents in the folder"""
+    """Process all documents in the folder with intelligent chunking and embeddings"""
     try:
-        result = await doc_processor.process_all_documents()
-        return {"message": "Documents processing started", "result": result}
+        result = await doc_processor.process_all_documents_enhanced()
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing documents: {str(e)}")
 

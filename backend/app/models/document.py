@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 class Document(BaseModel):
@@ -37,3 +37,28 @@ class UploadValidationError(BaseModel):
     filename: str
     error_type: str
     message: str
+
+class ProcessingStatus(BaseModel):
+    """Status information for document processing"""
+    document_id: str
+    filename: str
+    status: str  # "pending", "processing", "chunking", "embedding", "completed", "failed"
+    progress: float  # 0.0 to 1.0
+    chunks_created: int = 0
+    embeddings_generated: int = 0
+    error_message: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    processing_time_seconds: Optional[float] = None
+
+class DocumentProcessingResult(BaseModel):
+    """Complete result of document processing"""
+    total_documents: int
+    processed_count: int
+    failed_count: int
+    total_chunks_created: int
+    total_embeddings_generated: int
+    processing_time_seconds: float
+    failed_documents: List[Dict[str, Any]]
+    processing_stats: Dict[str, Any]
+    status_details: List[ProcessingStatus]

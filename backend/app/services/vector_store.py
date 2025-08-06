@@ -160,6 +160,78 @@ class VectorStore:
         
         return chunks
     
+    async def add_document_chunks(
+        self,
+        document_id: str,
+        document_name: str,
+        chunks: List[Dict[str, Any]],
+        embeddings: Optional[List[List[float]]] = None
+    ) -> bool:
+        """Add pre-chunked document data to the vector store with optional embeddings."""
+        await self.ensure_initialized()
+        
+        try:
+            if not chunks:
+                logger.warning(f"No chunks provided for document {document_id}")
+                return False
+            
+            # If ChromaDB is not available, use fallback storage
+            if not CHROMADB_AVAILABLE or not self.collection:
+                for chunk_data in chunks:
+                    chunk_with_id = chunk_data.copy()
+                    chunk_with_id["chunk_id"] = f"{document_id}_chunk_{chunk_data['metadata'].get('chunk_index', 0)}"
+                    chunk_with_id["document_id"] = document_id
+                    chunk_with_id["document_name"] = document_name
+                    self._fallback_storage.append(chunk_with_id)
+                logger.info(f"Added {len(chunks)} chunks to fallback storage")
+                return True
+            
+            # Prepare data for ChromaDB
+            ids = []
+            documents = []
+            metadatas = []
+            
+            for i, chunk_data in enumerate(chunks):
+                chunk_id = f"{document_id}_chunk_{i}"
+                text = chunk_data.get("text", "")
+                metadata = chunk_data.get("metadata", {})
+                
+                # Ensure required metadata fields
+                metadata.update({
+                    "chunk_id": chunk_id,
+                    "document_id": document_id,
+                    "document_name": document_name,
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                })
+                
+                ids.append(chunk_id)
+                documents.append(text)
+                metadatas.append(metadata)
+            
+            # Add to ChromaDB with or without embeddings
+            if embeddings and len(embeddings) == len(chunks):
+                logger.info(f"Adding {len(chunks)} chunks with embeddings to ChromaDB")
+                self.collection.add(
+                    ids=ids,
+                    documents=documents,
+                    metadatas=metadatas,
+                    embeddings=embeddings
+                )
+            else:
+                logger.info(f"Adding {len(chunks)} chunks to ChromaDB (embeddings will be auto-generated)")
+                self.collection.add(
+                    ids=ids,
+                    documents=documents,
+                    metadatas=metadatas
+                )
+            
+            logger.info(f"Successfully added {len(chunks)} chunks for document {document_id} to ChromaDB")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error adding document chunks {document_id} to vector store: {e}")
+            raise DocumentProcessingError(f"Failed to add document chunks to vector store: {e}")
+
     async def add_document(
         self,
         document_id: str,
@@ -168,51 +240,29 @@ class VectorStore:
         metadata: Optional[Dict[str, Any]] = None,
         embeddings: Optional[List[List[float]]] = None
     ) -> bool:
-        """Add a document to the vector store."""
+        """Add a document to the vector store (legacy method - chunks internally)."""
         await self.ensure_initialized()
         
         try:
-            # Chunk the document
+            # Chunk the document using simple chunking
             chunks = self._chunk_text(text, document_id, document_name)
             
             if not chunks:
                 logger.warning(f"No chunks created for document {document_id}")
                 return False
             
-            # Add metadata to each chunk
-            if metadata:
-                for chunk in chunks:
-                    chunk.metadata.update(metadata)
+            # Convert DocumentChunk objects to dictionaries
+            chunk_dicts = []
+            for chunk in chunks:
+                chunk_dict = {
+                    "text": chunk.text,
+                    "metadata": chunk.to_dict()
+                }
+                if metadata:
+                    chunk_dict["metadata"].update(metadata)
+                chunk_dicts.append(chunk_dict)
             
-            # If ChromaDB is not available, use fallback storage
-            if not CHROMADB_AVAILABLE or not self.collection:
-                for chunk in chunks:
-                    self._fallback_storage.append(chunk.to_dict())
-                logger.info(f"Added {len(chunks)} chunks to fallback storage")
-                return True
-            
-            # Prepare data for ChromaDB
-            ids = [chunk.chunk_id for chunk in chunks]
-            documents = [chunk.text for chunk in chunks]
-            metadatas = [chunk.to_dict() for chunk in chunks]
-            
-            # Add to ChromaDB (ChromaDB will generate embeddings if not provided)
-            if embeddings and len(embeddings) == len(chunks):
-                self.collection.add(
-                    ids=ids,
-                    documents=documents,
-                    metadatas=metadatas,
-                    embeddings=embeddings
-                )
-            else:
-                self.collection.add(
-                    ids=ids,
-                    documents=documents,
-                    metadatas=metadatas
-                )
-            
-            logger.info(f"Added {len(chunks)} chunks for document {document_id} to ChromaDB")
-            return True
+            return await self.add_document_chunks(document_id, document_name, chunk_dicts, embeddings)
             
         except Exception as e:
             logger.error(f"Error adding document {document_id} to vector store: {e}")
